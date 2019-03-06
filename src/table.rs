@@ -86,39 +86,73 @@ impl Row {
     }
 }
 
+pub struct Cursor<'a> {
+    pub table: &'a mut Table,
+    pub row_num: usize,
+    pub end_of_table: bool,
+}
+
+impl<'a> Cursor<'a> {
+    fn value(&mut self) -> (&mut Page, usize) {
+        let page_num = self.row_num / ROWS_PER_PAGE;
+
+        let page = self.table.pager.get_page(page_num);
+        let row_offset = self.row_num % ROWS_PER_PAGE;
+        let byte_offset = row_offset * ROW_SIZE;
+        return (page, byte_offset);
+    }
+
+    pub fn get_row(&mut self) -> Row {
+        let (page, pos) = self.value();
+        Row::deserialize(page, pos)
+    }
+
+    pub fn insert(&mut self, row: &Row) {
+        let bytes = Row::serialize(&row);
+        let (page, mut pos) = self.value();
+        for b in bytes {
+            page[pos] = b;
+            pos += 1;
+        }
+        self.table.num_rows += 1;
+    }
+
+    pub fn advance(&mut self) {
+        self.row_num += 1;
+        if self.row_num >= self.table.num_rows {
+            self.end_of_table = true;
+        }
+    }
+}
+
 pub struct Table {
     pub pager: Pager,
     pub num_rows: usize,
 }
 
-impl Table {
+impl<'a> Table {
     pub fn new(file: &str) -> Table {
         let pager = Pager::new(file);
         let num_rows = pager.file_length / ROW_SIZE;
         Table { pager, num_rows }
     }
 
-    pub fn insert(self: &mut Table, row: &Row) {
-        let bytes = Row::serialize(&row);
-        let (page, mut pos) = self.row_slot(self.num_rows);
-        for b in bytes {
-            page[pos] = b;
-            pos += 1;
+    pub fn start(&mut self) -> Cursor {
+        let end_of_table = self.num_rows == 0;
+        Cursor {
+            table: self,
+            row_num: 0,
+            end_of_table,
         }
-        self.num_rows += 1;
     }
 
-    pub fn get_row(self: &mut Table, row_num: usize) -> Row {
-        let (page, pos) = self.row_slot(row_num);
-        Row::deserialize(page, pos)
-    }
-
-    fn row_slot(self: &mut Table, row_num: usize) -> (&mut Page, usize) {
-        let page_num = row_num / ROWS_PER_PAGE;
-        let page = self.pager.get_page(page_num);
-        let row_offset = row_num % ROWS_PER_PAGE;
-        let byte_offset = row_offset * ROW_SIZE;
-        return (page, byte_offset);
+    pub fn end(&mut self) -> Cursor {
+        let row_num = self.num_rows;
+        Cursor {
+            table: self,
+            row_num,
+            end_of_table: true,
+        }
     }
 
     pub fn flush_all(self: &mut Table) {

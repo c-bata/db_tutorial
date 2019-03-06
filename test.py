@@ -4,7 +4,7 @@ import unittest
 
 def run_script(commands, filename="./test.db"):
     p = subprocess.Popen(
-        ["./db", filename],
+        ["./target/debug/db_tutorial", filename],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

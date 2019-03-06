@@ -83,9 +83,11 @@ enum ExecuteResult {
 }
 
 fn execute_select(table: &mut Table) -> ExecuteResult {
-    for i in 0..table.num_rows {
-        let row = table.get_row(i);
+    let mut cursor = table.start();
+    while !cursor.end_of_table {
+        let row = cursor.get_row();
         println!("({}, {}, {})", row.id, &row.username, &row.email);
+        cursor.advance();
     }
     return ExecuteResult::Success;
 }
@@ -96,7 +98,8 @@ fn execute_statement(stmt: Statement, table: &mut Table) -> ExecuteResult {
     }
     match stmt {
         Statement::Insert(row) => {
-            table.insert(&row);
+            let mut cursor = table.end();
+            cursor.insert(&row);
             return ExecuteResult::Success;
         }
         Statement::Select => {
