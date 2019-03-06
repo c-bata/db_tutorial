@@ -1,0 +1,9 @@
+/target
+db
+/build
+
+**/*.rs.bk
+
+venv/
+__pycache__/
+*.db
