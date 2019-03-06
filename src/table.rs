@@ -1,11 +1,10 @@
-use std::ops::{Range, Index, IndexMut};
 use byteorder::{ByteOrder, LittleEndian};
-use std::fs::OpenOptions;
 use std::fs::File;
-use std::vec::{Vec};
+use std::fs::OpenOptions;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::ops::{Index, IndexMut, Range};
 use std::process::exit;
-use std::io::{Seek, SeekFrom, Read, Write};
-
+use std::vec::Vec;
 
 const ID_SIZE: usize = 4;
 // C strings are supposed to end with a null character.
@@ -30,7 +29,13 @@ pub struct Row {
 impl Row {
     fn serialize(row: &Row) -> Vec<u8> {
         let mut buf = vec![0; ROW_SIZE];
-        LittleEndian::write_i32(&mut buf.index_mut(Range { start: 0, end: ID_SIZE}), row.id);
+        LittleEndian::write_i32(
+            &mut buf.index_mut(Range {
+                start: 0,
+                end: ID_SIZE,
+            }),
+            row.id,
+        );
         Row::write_string(&mut buf, USERNAME_OFFSET, &row.username, USERNAME_SIZE);
         Row::write_string(&mut buf, EMAIL_OFFSET, &row.email, EMAIL_SIZE);
         return buf;
@@ -46,7 +51,11 @@ impl Row {
         let id = LittleEndian::read_i32(bytes.as_slice());
         let username = Row::read_string(&bytes, USERNAME_OFFSET, USERNAME_SIZE);
         let email = Row::read_string(&bytes, EMAIL_OFFSET, EMAIL_SIZE);
-        Row { id, username, email}
+        Row {
+            id,
+            username,
+            email,
+        }
     }
 
     fn write_string(buf: &mut Vec<u8>, pos: usize, s: &str, length: usize) {
@@ -57,11 +66,11 @@ impl Row {
         // it seems to be room for performance improvements.
         let mut i = 0;
         for b in vec {
-            buf[pos+i] = b;
+            buf[pos + i] = b;
             i += 1;
         }
         while i < length {
-            buf[pos+i] = 0;
+            buf[pos + i] = 0;
             i += 1;
         }
     }
@@ -72,10 +81,7 @@ impl Row {
             end += 1;
         }
         let mut bytes = vec![0; end - pos];
-        bytes.clone_from_slice(buf.index(Range {
-            start: pos,
-            end,
-        }));
+        bytes.clone_from_slice(buf.index(Range { start: pos, end }));
         return String::from_utf8(bytes).unwrap();
     }
 }
@@ -112,7 +118,7 @@ impl Table {
         let page = self.pager.get_page(page_num);
         let row_offset = row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
-        return (page, byte_offset)
+        return (page, byte_offset);
     }
 
     pub fn flush_all(self: &mut Table) {
@@ -123,9 +129,7 @@ impl Table {
                 Some(_) => {
                     self.pager.flush_page(i);
                 }
-                None => {
-                    continue
-                }
+                None => continue,
             }
         }
 
@@ -163,7 +167,11 @@ impl Pager {
         for _i in 0..TABLE_MAX_PAGES {
             pages.push(None)
         }
-        Pager { file, file_length, pages }
+        Pager {
+            file,
+            file_length,
+            pages,
+        }
     }
 
     fn flush_page(self: &mut Pager, page_num: usize) {
@@ -191,9 +199,12 @@ impl Pager {
         }
     }
 
-    fn get_page(self: &mut Pager, page_num: usize)-> &mut Page {
+    fn get_page(self: &mut Pager, page_num: usize) -> &mut Page {
         if page_num > TABLE_MAX_PAGES {
-            println!("Tried to fetch page number out of bounds. {} > {}", page_num, TABLE_MAX_PAGES);
+            println!(
+                "Tried to fetch page number out of bounds. {} > {}",
+                page_num, TABLE_MAX_PAGES
+            );
             exit(1);
         }
 
