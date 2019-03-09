@@ -1,10 +1,14 @@
+import os
 import subprocess
 import unittest
 
+TARGET = os.getenv("TARGET", "./db")
+TEST_DATABASE_FILE = os.getenv("TEST_DATABASE_FILE", "./test.db")
 
-def run_script(commands, filename="./test.db"):
+
+def run_script(commands):
     p = subprocess.Popen(
-        ["./db", filename],
+        [TARGET, TEST_DATABASE_FILE],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -24,7 +28,7 @@ def run_script(commands, filename="./test.db"):
 class MyDatabaseTest(unittest.TestCase):
     def tearDown(self):
         try:
-            subprocess.run(["rm", "test.db"])
+            subprocess.run(["rm", TEST_DATABASE_FILE])
         except Exception as e:
             print(e)
 
