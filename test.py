@@ -143,10 +143,26 @@ class MyDatabaseTest(unittest.TestCase):
             "db > Executed.",
             "db > Tree:",
             "leaf (size 3)",
-            "  - 0 : 3",
-            "  - 1 : 1",
-            "  - 2 : 2",
+            "  - 0 : 1",
+            "  - 1 : 2",
+            "  - 2 : 3",
             "db > "
+        ])
+
+    def test_prints_an_error_message_if_there_is_a_duplicate_id(self):
+        code, outs = run_script([
+            "insert 1 user1 person1@example.com",
+            "insert 1 user1 person1@example.com",
+            "select",
+            ".exit",
+        ])
+        self.assertEqual(code, 0)
+        self.assertListEqual(outs, [
+            "db > Executed.",
+            "db > Error: Duplicate key.",
+            "db > (1, user1, person1@example.com)",
+            "Executed.",
+            "db > ",
         ])
 
 
