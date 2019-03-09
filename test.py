@@ -54,7 +54,10 @@ class MyDatabaseTest(unittest.TestCase):
             ops.append(f"insert {i} user{i} person{i}@example.com")
         ops.append(".exit")
         _, outs = run_script(ops)
-        self.assertEqual(outs[-2], "db > Error: Table full.")
+        self.assertEqual(outs[-3:-1], [
+            "db > Executed.",
+            "db > Need to implement updating parent after split",
+        ])
 
     def test_allows_inserting_strings_that_are_the_maximum_length(self):
         long_username = "a"*32
@@ -198,7 +201,8 @@ class MyDatabaseTest(unittest.TestCase):
             "    - 12",
             "    - 13",
             "    - 14",
-            "db > Need to implement searching an internal node",
+            "db > Executed.",
+            "db > ",
         ])
 
 
