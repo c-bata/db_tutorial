@@ -48,6 +48,14 @@ class MyDatabaseTest(unittest.TestCase):
             "db > ",
         ])
 
+    def test_prints_error_message_when_table_is_full(self):
+        ops = []
+        for i in range(1, 1401):
+            ops.append(f"insert {i} user{i} person{i}@example.com")
+        ops.append(".exit")
+        _, outs = run_script(ops)
+        self.assertEqual(outs[-2], "db > Error: Table full.")
+
     def test_allows_inserting_strings_that_are_the_maximum_length(self):
         long_username = "a"*32
         long_email = "a"*255
