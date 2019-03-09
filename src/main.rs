@@ -3,7 +3,7 @@ use std::io;
 use std::io::Write;
 use std::process::exit;
 mod table;
-use table::{Row, Table, TABLE_MAX_ROWS};
+use table::{Row, Table,LEAF_NODE_MAX_CELLS,leaf_node_num_cells,print_constants,print_leaf_node};
 
 const COLUMN_USERNAME_SIZE: usize = 32;
 const COLUMN_EMAIL_SIZE: usize = 255;
@@ -15,6 +15,7 @@ enum Statement {
 }
 
 enum MetaCommandResult {
+    Success,
     UnrecognizedCommand,
 }
 
@@ -23,6 +24,16 @@ fn do_meta_command(input_buffer: &String, table: &mut Table) -> MetaCommandResul
         ".exit" => {
             db_close(table);
             exit(0);
+        }
+        ".constants" => {
+            println!("Constants:");
+            print_constants();
+            return MetaCommandResult::Success;
+        }
+        ".btree" => {
+            println!("Tree:");
+            print_leaf_node(table.pager.get_page(0));
+            return MetaCommandResult::Success;
         }
         _ => return MetaCommandResult::UnrecognizedCommand,
     }
@@ -93,13 +104,16 @@ fn execute_select(table: &mut Table) -> ExecuteResult {
 }
 
 fn execute_statement(stmt: Statement, table: &mut Table) -> ExecuteResult {
-    if table.num_rows >= TABLE_MAX_ROWS {
-        return ExecuteResult::TableFull;
-    }
     match stmt {
         Statement::Insert(row) => {
+            let root_node = table.pager.get_page(table.root_page_num);
+            let num_cells = leaf_node_num_cells(&root_node) as usize;
+            if num_cells >= LEAF_NODE_MAX_CELLS {
+                return ExecuteResult::TableFull
+            }
             let mut cursor = table.end();
-            cursor.insert(&row);
+            let key = row.id;
+            cursor.leaf_node_insert(key, &row);
             return ExecuteResult::Success;
         }
         Statement::Select => {
@@ -139,6 +153,9 @@ fn main() {
 
         if input_buffer.starts_with(".") {
             match do_meta_command(&input_buffer, &mut table) {
+                MetaCommandResult::Success => {
+                    continue;
+                }
                 MetaCommandResult::UnrecognizedCommand => {
                     println!("Unrecognized command: {}", input_buffer);
                     continue;
