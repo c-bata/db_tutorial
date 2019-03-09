@@ -148,10 +148,10 @@ class MyDatabaseTest(unittest.TestCase):
             "db > Executed.",
             "db > Executed.",
             "db > Tree:",
-            "leaf (size 3)",
-            "  - 0 : 1",
-            "  - 1 : 2",
-            "  - 2 : 3",
+            "- leaf (size 3)",
+            "  - 1",
+            "  - 2",
+            "  - 3",
             "db > "
         ])
 
@@ -168,6 +168,37 @@ class MyDatabaseTest(unittest.TestCase):
             "db > (1, user1, person1@example.com)",
             "Executed.",
             "db > ",
+        ])
+
+    def test_allows_printing_out_the_structure_of_a_3_leaf_node_btree(self):
+        ops = []
+        for i in range(1, 15):
+            ops.append(f"insert {i} user{i} person{i}@example.com")
+        ops.append(".btree")
+        ops.append("insert 15 user15 person15@example.com")
+        ops.append(".exit")
+        _, outs = run_script(ops)
+        self.assertListEqual(outs[14:], [
+            "db > Tree:",
+            "- internal (size 1)",
+            "  - leaf (size 7)",
+            "    - 1",
+            "    - 2",
+            "    - 3",
+            "    - 4",
+            "    - 5",
+            "    - 6",
+            "    - 7",
+            "- key 7",
+            "  - leaf (size 7)",
+            "    - 8",
+            "    - 9",
+            "    - 10",
+            "    - 11",
+            "    - 12",
+            "    - 13",
+            "    - 14",
+            "db > Need to implement searching an internal node",
         ])
 
 
