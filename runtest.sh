@@ -10,4 +10,4 @@ cargo build
 
 # Running unittest
 python3.7 -m unittest
-TARGET=./target/debug/db_tutorial python3.7 -m unittest
+RUST_BACKTRACE=1 TARGET=./target/debug/db_tutorial python3.7 -m unittest

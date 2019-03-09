@@ -26,6 +26,8 @@ def run_script(commands):
 
 
 class MyDatabaseTest(unittest.TestCase):
+    maxDiff = None
+
     def tearDown(self):
         try:
             subprocess.run(["rm", TEST_DATABASE_FILE])
@@ -91,21 +93,19 @@ class MyDatabaseTest(unittest.TestCase):
         ])
 
     def test_keeps_data_after_closing_connection(self):
-        code, outs = run_script([
+        _, outs = run_script([
             "insert 1 user1 person1@example.com",
             ".exit",
         ])
-        self.assertEqual(code, 0)
         self.assertListEqual(outs, [
             "db > Executed.",
             "db > ",
         ])
 
-        code, outs = run_script([
+        _, outs = run_script([
             "select",
             ".exit",
         ])
-        self.assertEqual(code, 0)
         self.assertListEqual(outs, [
             "db > (1, user1, person1@example.com)",
             "Executed.",
@@ -113,11 +113,10 @@ class MyDatabaseTest(unittest.TestCase):
         ])
 
     def test_print_constants(self):
-        code, outs = run_script([
+        _, outs = run_script([
             ".constants",
             ".exit",
         ])
-        self.assertEqual(code, 0)
         self.assertListEqual(outs, [
             "db > Constants:",
             "ROW_SIZE: 293",
@@ -135,8 +134,7 @@ class MyDatabaseTest(unittest.TestCase):
             ops.append(f"insert {i} user{i} person{i}@example.com")
         ops.append(".btree")
         ops.append(".exit")
-        code, outs = run_script(ops)
-        self.assertEqual(code, 0)
+        _, outs = run_script(ops)
         self.assertListEqual(outs, [
             "db > Executed.",
             "db > Executed.",
@@ -150,13 +148,12 @@ class MyDatabaseTest(unittest.TestCase):
         ])
 
     def test_prints_an_error_message_if_there_is_a_duplicate_id(self):
-        code, outs = run_script([
+        _, outs = run_script([
             "insert 1 user1 person1@example.com",
             "insert 1 user1 person1@example.com",
             "select",
             ".exit",
         ])
-        self.assertEqual(code, 0)
         self.assertListEqual(outs, [
             "db > Executed.",
             "db > Error: Duplicate key.",

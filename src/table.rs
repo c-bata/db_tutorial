@@ -21,6 +21,7 @@ const TABLE_MAX_PAGES: usize = 100;
  * Common Node Header Layout
  */
 pub const NODE_TYPE_SIZE: usize = 1;
+pub const NODE_TYPE_OFFSET: usize = 0;
 pub const IS_ROOT_SIZE: usize = 1;
 pub const IS_ROOT_OFFSET: usize = NODE_TYPE_SIZE;
 pub const PARENT_POINTER_SIZE: usize = 4;
@@ -44,6 +45,10 @@ pub const LEAF_NODE_VALUE_OFFSET: usize = LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_S
 pub const LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
 pub const LEAF_NODE_SPACE_FOR_CELLS: usize = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
 pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
+
+enum NodeType {
+    Leaf
+}
 
 #[derive(Debug)]
 pub struct Row {
@@ -131,7 +136,25 @@ fn write_leaf_node_num_cells(node: &mut Page, num_cells: u32) {
     );
 }
 
+fn get_node_type(node: &Page) -> NodeType {
+    let x = node[NODE_TYPE_OFFSET];
+    if x != 0 {
+        println!("invalid node type");
+        exit(1);
+    }
+    return NodeType::Leaf
+}
+
+fn set_node_type(node: &mut Page, t: NodeType) {
+    match t {
+        NodeType::Leaf => {
+            node[NODE_TYPE_OFFSET] = 0;
+        }
+    }
+}
+
 fn initialize_leaf_node(node: &mut Page) {
+    set_node_type(node, NodeType::Leaf);
     write_leaf_node_num_cells(node, 0);
 }
 
@@ -164,7 +187,7 @@ fn write_leaf_node_key_cell(node: &mut Page, cell_num: u32, key: u32) {
     );
 }
 
-fn leaf_node_key(node: &Page, cell_num: u32) -> u32 {
+pub fn leaf_node_key(node: &Page, cell_num: u32) -> u32 {
     let offset = LEAF_NODE_HEADER_SIZE + LEAF_NODE_CELL_SIZE * (cell_num as usize);
     let mut bytes = vec![0; LEAF_NODE_KEY_SIZE];
     bytes.clone_from_slice(node.index(Range {
@@ -212,7 +235,7 @@ impl<'a> Cursor<'a> {
             for i in (loop_from..loop_to).rev() {
                 // leaf_node_cell(node, i-1) の先頭から LEAF_NODE_CELL_SIZE分を leaf_node_cell(node, i)  へコピー
                 // 順序が重要なのでデータをひたすらコピーしまくる。
-                let offset_from: usize = LEAF_NODE_HEADER_SIZE + (i-1 * LEAF_NODE_CELL_SIZE);
+                let offset_from: usize = LEAF_NODE_HEADER_SIZE + ((i-1) * LEAF_NODE_CELL_SIZE);
                 let offset_to: usize = LEAF_NODE_HEADER_SIZE + (i * LEAF_NODE_CELL_SIZE);
                 new_node[offset_to..offset_to+LEAF_NODE_CELL_SIZE].copy_from_slice(&node[offset_from..offset_from+LEAF_NODE_CELL_SIZE])
             }
@@ -274,16 +297,46 @@ impl<'a> Table {
         }
     }
 
-    pub fn end(&mut self) -> Cursor {
+    pub fn find_node(&mut self, key: u32) -> Cursor {
         let page_num = self.root_page_num;
         let root_node = self.pager.get_page(self.root_page_num);
-        let num_cells = leaf_node_num_cells(root_node) as usize;
-        let cell_num = num_cells;
-        Cursor {
+
+        match get_node_type(&root_node) {
+            NodeType::Leaf => {
+                return self.leaf_node_find(page_num as u32, key);
+            }
+        }
+    }
+
+    fn leaf_node_find(&mut self, page_num: u32, key: u32) -> Cursor {
+        let node = self.pager.get_page(page_num as usize);
+        let num_cells = leaf_node_num_cells(&node);
+
+        let mut min_index = 0;
+        let mut one_past_max_index = num_cells;
+
+        while one_past_max_index != min_index {
+            let index = (min_index + one_past_max_index) / 2;
+            let key_at_index = leaf_node_key(node, index);
+            if key == key_at_index {
+                return Cursor {
+                    table: self,
+                    page_num: page_num as usize,
+                    cell_num: index as usize,
+                    end_of_table: false,
+                }
+            }
+            if key < key_at_index {
+                one_past_max_index = index;
+            } else {
+                min_index = index + 1;
+            }
+        }
+        return Cursor {
             table: self,
-            page_num,
-            cell_num,
-            end_of_table: true,
+            page_num: page_num as usize,
+            cell_num: min_index as usize,
+            end_of_table: false
         }
     }
 

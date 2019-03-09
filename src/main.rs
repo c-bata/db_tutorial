@@ -3,7 +3,14 @@ use std::io;
 use std::io::Write;
 use std::process::exit;
 mod table;
-use table::{Row, Table,LEAF_NODE_MAX_CELLS,leaf_node_num_cells,print_constants,print_leaf_node};
+use table::{
+    Row, Table,
+    LEAF_NODE_MAX_CELLS,
+    leaf_node_num_cells,
+    print_constants,
+    print_leaf_node,
+    leaf_node_key,
+};
 
 const COLUMN_USERNAME_SIZE: usize = 32;
 const COLUMN_EMAIL_SIZE: usize = 255;
@@ -88,7 +95,28 @@ fn prepare_statement(input_buffer: &String) -> Result<Statement, PrepareResultEr
 
 enum ExecuteResult {
     Success,
+    DuplicateKey,
     TableFull,
+}
+
+fn execute_insert(table: &mut Table, row: Row) -> ExecuteResult {
+    let key_to_insert = row.id;
+    let cursor = table.find_node(key_to_insert);
+    let cell_num = cursor.cell_num;
+
+    let root_node = table.pager.get_page(table.root_page_num);
+    let num_cells = leaf_node_num_cells(&root_node) as usize;
+    if num_cells >= LEAF_NODE_MAX_CELLS {
+        return ExecuteResult::TableFull
+    }
+    if cell_num < num_cells {
+        let key_at_index = leaf_node_key(root_node, cell_num as u32);
+        if key_at_index == key_to_insert {
+            return ExecuteResult::DuplicateKey
+        }
+    }
+    table.find_node(key_to_insert).leaf_node_insert(row.id, &row);
+    return ExecuteResult::Success;
 }
 
 fn execute_select(table: &mut Table) -> ExecuteResult {
@@ -104,15 +132,7 @@ fn execute_select(table: &mut Table) -> ExecuteResult {
 fn execute_statement(stmt: Statement, table: &mut Table) -> ExecuteResult {
     match stmt {
         Statement::Insert(row) => {
-            let root_node = table.pager.get_page(table.root_page_num);
-            let num_cells = leaf_node_num_cells(&root_node) as usize;
-            if num_cells >= LEAF_NODE_MAX_CELLS {
-                return ExecuteResult::TableFull
-            }
-            let mut cursor = table.end();
-            let key = row.id;
-            cursor.leaf_node_insert(key, &row);
-            return ExecuteResult::Success;
+            return execute_insert(table, row);
         }
         Statement::Select => {
             return execute_select(table);
@@ -165,6 +185,7 @@ fn main() {
             Ok(stmt) => {
                 match execute_statement(stmt, &mut table) {
                     ExecuteResult::Success => println!("Executed."),
+                    ExecuteResult::DuplicateKey => println!("Error: Duplicate key."),
                     ExecuteResult::TableFull => println!("Error: Table full"),
                 };
             }
