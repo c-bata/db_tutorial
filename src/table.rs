@@ -47,7 +47,7 @@ pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CEL
 
 #[derive(Debug)]
 pub struct Row {
-    pub id: i32,
+    pub id: u32,
     pub username: String,
     pub email: String,
 }
@@ -55,7 +55,7 @@ pub struct Row {
 impl Row {
     fn serialize(row: &Row) -> Vec<u8> {
         let mut buf = vec![0; ROW_SIZE];
-        LittleEndian::write_i32(
+        LittleEndian::write_u32(
             &mut buf.index_mut(Range {
                 start: 0,
                 end: ID_SIZE,
@@ -74,7 +74,7 @@ impl Row {
             end: pos + ROW_SIZE,
         }));
 
-        let id = LittleEndian::read_i32(bytes.as_slice());
+        let id = LittleEndian::read_u32(bytes.as_slice());
         let username = Row::read_string(&bytes, USERNAME_OFFSET, USERNAME_SIZE);
         let email = Row::read_string(&bytes, EMAIL_OFFSET, EMAIL_SIZE);
         Row {
@@ -153,9 +153,9 @@ fn write_leaf_node_value(node: &mut Page, cell_num: usize, value: Vec<u8>) {
     }
 }
 
-fn write_leaf_node_key_cell(node: &mut Page, cell_num: u32, key: i32) {
+fn write_leaf_node_key_cell(node: &mut Page, cell_num: u32, key: u32) {
     let offset = LEAF_NODE_HEADER_SIZE + LEAF_NODE_CELL_SIZE * (cell_num as usize);
-    LittleEndian::write_i32(
+    LittleEndian::write_u32(
         &mut node.index_mut(Range {
             start: offset,
             end: offset + LEAF_NODE_KEY_SIZE,
@@ -164,14 +164,14 @@ fn write_leaf_node_key_cell(node: &mut Page, cell_num: u32, key: i32) {
     );
 }
 
-fn leaf_node_key(node: &Page, cell_num: u32) -> i32 {
+fn leaf_node_key(node: &Page, cell_num: u32) -> u32 {
     let offset = LEAF_NODE_HEADER_SIZE + LEAF_NODE_CELL_SIZE * (cell_num as usize);
     let mut bytes = vec![0; LEAF_NODE_KEY_SIZE];
     bytes.clone_from_slice(node.index(Range {
         start: offset,
         end: offset + LEAF_NODE_KEY_SIZE,
     }));
-    return LittleEndian::read_i32(bytes.as_slice());
+    return LittleEndian::read_u32(bytes.as_slice());
 }
 
 #[derive(Debug)]
@@ -195,7 +195,7 @@ impl<'a> Cursor<'a> {
         Row::deserialize(&value, 0)
     }
 
-    pub fn leaf_node_insert(&mut self, key: i32, row: &Row) {
+    pub fn leaf_node_insert(&mut self, key: u32, row: &Row) {
         let node = self.table.pager.get_page(self.page_num);
         let num_cells: u32 = leaf_node_num_cells(node);
         if (num_cells as usize) >= LEAF_NODE_MAX_CELLS {

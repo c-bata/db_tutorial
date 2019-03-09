@@ -52,14 +52,12 @@ fn prepare_insert(input_buffer: &String) -> Result<Statement, PrepareResultError
         return Err(PrepareResultError::SyntaxError);
     }
 
-    let user_id = splits[1].parse::<i32>();
-    match user_id {
-        Ok(_id) => {
-            if _id < 0 {
-                return Err(PrepareResultError::NegativeID);
-            }
+    let user_id = splits[1].parse::<u32>();
+    if let Err(_) = user_id {
+        if splits[1].starts_with("-") {
+            return Err(PrepareResultError::NegativeID);
         }
-        Err(_) => return Err(PrepareResultError::SyntaxError),
+        return Err(PrepareResultError::SyntaxError)
     }
     let id = user_id.unwrap();
     let username = String::from(splits[2]);
