@@ -5,7 +5,6 @@ use std::process::exit;
 mod table;
 use table::{
     Row, Table,
-    LEAF_NODE_MAX_CELLS,
     leaf_node_num_cells,
     print_constants,
     print_leaf_node,
@@ -96,7 +95,6 @@ fn prepare_statement(input_buffer: &String) -> Result<Statement, PrepareResultEr
 enum ExecuteResult {
     Success,
     DuplicateKey,
-    TableFull,
 }
 
 fn execute_insert(table: &mut Table, row: Row) -> ExecuteResult {
@@ -106,9 +104,6 @@ fn execute_insert(table: &mut Table, row: Row) -> ExecuteResult {
 
     let root_node = table.pager.get_page(table.root_page_num);
     let num_cells = leaf_node_num_cells(&root_node) as usize;
-    if num_cells >= LEAF_NODE_MAX_CELLS {
-        return ExecuteResult::TableFull
-    }
     if cell_num < num_cells {
         let key_at_index = leaf_node_key(root_node, cell_num as u32);
         if key_at_index == key_to_insert {
@@ -186,7 +181,6 @@ fn main() {
                 match execute_statement(stmt, &mut table) {
                     ExecuteResult::Success => println!("Executed."),
                     ExecuteResult::DuplicateKey => println!("Error: Duplicate key."),
-                    ExecuteResult::TableFull => println!("Error: Table full"),
                 };
             }
             Err(e) => match e {

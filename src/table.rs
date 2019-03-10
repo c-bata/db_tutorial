@@ -20,34 +20,54 @@ const TABLE_MAX_PAGES: usize = 100;
 /*
  * Common Node Header Layout
  */
-pub const NODE_TYPE_SIZE: usize = 1;
-pub const NODE_TYPE_OFFSET: usize = 0;
-pub const IS_ROOT_SIZE: usize = 1;
-pub const IS_ROOT_OFFSET: usize = NODE_TYPE_SIZE;
-pub const PARENT_POINTER_SIZE: usize = 4;
-pub const PARENT_POINTER_OFFSET: usize = IS_ROOT_OFFSET + IS_ROOT_SIZE;
-pub const COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
+const NODE_TYPE_SIZE: usize = 1;
+const NODE_TYPE_OFFSET: usize = 0;
+const IS_ROOT_SIZE: usize = 1;
+const IS_ROOT_OFFSET: usize = NODE_TYPE_SIZE;
+const PARENT_POINTER_SIZE: usize = 4;
+const PARENT_POINTER_OFFSET: usize = IS_ROOT_OFFSET + IS_ROOT_SIZE;
+const COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
 
 /*
  * Leaf Node Header Layout
  */
-pub const LEAF_NODE_NUM_CELLS_SIZE: usize = 4;
-pub const LEAF_NODE_NUM_CELLS_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
-pub const LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE;
+const LEAF_NODE_NUM_CELLS_SIZE: usize = 4;
+const LEAF_NODE_NUM_CELLS_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
+const LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE;
 
 /*
  * Leaf Node Body Layout
  */
-pub const LEAF_NODE_KEY_SIZE: usize = 4;
-pub const LEAF_NODE_KEY_OFFSET: usize = 0;
-pub const LEAF_NODE_VALUE_SIZE: usize = ROW_SIZE;
-pub const LEAF_NODE_VALUE_OFFSET: usize = LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_SIZE;
-pub const LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
-pub const LEAF_NODE_SPACE_FOR_CELLS: usize = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
-pub const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
+const LEAF_NODE_KEY_SIZE: usize = 4;
+const LEAF_NODE_KEY_OFFSET: usize = 0;
+const LEAF_NODE_VALUE_SIZE: usize = ROW_SIZE;
+const LEAF_NODE_VALUE_OFFSET: usize = LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_SIZE;
+const LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
+const LEAF_NODE_SPACE_FOR_CELLS: usize = PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
+const LEAF_NODE_MAX_CELLS: usize = LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
+
+const LEAF_NODE_RIGHT_SPLIT_COUNT: usize = (LEAF_NODE_MAX_CELLS + 1) / 2;
+const LEAF_NODE_LEFT_SPLIT_COUNT: usize = (LEAF_NODE_MAX_CELLS + 1) - LEAF_NODE_RIGHT_SPLIT_COUNT;
+
+/*
+ * Internal Node Header Layout
+ */
+const INTERNAL_NODE_NUM_KEYS_SIZE: usize = 4;
+const INTERNAL_NODE_NUM_KEYS_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
+const INTERNAL_NODE_RIGHT_CHILD_SIZE: usize = 4;
+const INTERNAL_NODE_RIGHT_CHILD_OFFSET: usize = INTERNAL_NODE_NUM_KEYS_OFFSET + INTERNAL_NODE_NUM_KEYS_SIZE;
+const INTERNAL_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_NUM_KEYS_SIZE + INTERNAL_NODE_RIGHT_CHILD_SIZE;
+
+/*
+ * Internal Node Body Layout
+ */
+const INTERNAL_NODE_KEY_SIZE: usize = 4;
+const INTERNAL_NODE_CHILD_SIZE: usize = 4;
+const INTERNAL_NODE_CELL_SIZE: usize = INTERNAL_NODE_CHILD_SIZE + INTERNAL_NODE_KEY_SIZE;
 
 enum NodeType {
-    Leaf
+    Leaf,
+    Internal,
 }
 
 #[derive(Debug)]
@@ -136,26 +156,140 @@ fn write_leaf_node_num_cells(node: &mut Page, num_cells: u32) {
     );
 }
 
+fn internal_node_num_keys(node: &Page) -> u32 {
+    let mut bytes = vec![0; INTERNAL_NODE_NUM_KEYS_SIZE];
+    bytes.clone_from_slice(node.index(Range {
+        start: INTERNAL_NODE_NUM_KEYS_OFFSET,
+        end: INTERNAL_NODE_NUM_KEYS_OFFSET + INTERNAL_NODE_NUM_KEYS_SIZE,
+    }));
+    return LittleEndian::read_u32(bytes.as_slice());
+}
+
+fn write_internal_node_num_keys(node: &mut Page, num_keys: u32) {
+    LittleEndian::write_u32(
+        &mut node.index_mut(Range {
+            start: INTERNAL_NODE_NUM_KEYS_OFFSET,
+            end: INTERNAL_NODE_NUM_KEYS_OFFSET + INTERNAL_NODE_NUM_KEYS_SIZE,
+        }),
+        num_keys,
+    );
+}
+
+fn internal_node_right_child_pointer(node: &Page) -> u32 {
+    let mut bytes = vec![0; INTERNAL_NODE_RIGHT_CHILD_SIZE];
+    bytes.clone_from_slice(node.index(Range {
+        start: INTERNAL_NODE_RIGHT_CHILD_OFFSET,
+        end: INTERNAL_NODE_RIGHT_CHILD_OFFSET+ INTERNAL_NODE_RIGHT_CHILD_SIZE,
+    }));
+    return LittleEndian::read_u32(bytes.as_slice());
+}
+
+fn write_internal_node_right_child_pointer(node: &mut Page, ptr: u32) {
+    LittleEndian::write_u32(
+        &mut node.index_mut(Range {
+            start: INTERNAL_NODE_RIGHT_CHILD_OFFSET,
+            end: INTERNAL_NODE_RIGHT_CHILD_OFFSET+ INTERNAL_NODE_RIGHT_CHILD_SIZE,
+        }),
+        ptr,
+    );
+}
+
+fn internal_node_key(node: &Page, cell_num: u32) -> u32 {
+    let mut bytes = vec![0; INTERNAL_NODE_KEY_SIZE];
+    let offset = INTERNAL_NODE_HEADER_SIZE + (cell_num as usize) * INTERNAL_NODE_CELL_SIZE;
+    bytes.clone_from_slice(node.index(Range {
+        start: offset,
+        end: offset + INTERNAL_NODE_KEY_SIZE,
+    }));
+    return LittleEndian::read_u32(bytes.as_slice());
+}
+
+fn write_internal_node_key(node: &mut Page, cell_num: u32, value: u32) {
+    let offset = INTERNAL_NODE_HEADER_SIZE + (cell_num as usize) * INTERNAL_NODE_CELL_SIZE;
+    LittleEndian::write_u32(
+        &mut node.index_mut(Range {
+            start: offset,
+            end: offset + INTERNAL_NODE_KEY_SIZE,
+        }),
+        value,
+    )
+}
+
+fn write_internal_node_child(node: &mut Page, child_num: u32, ptr: u32) {
+    let num_keys = internal_node_num_keys(node);
+    if child_num > num_keys {
+        panic!("Tried to access child_num > num_keys");
+    } else if child_num == num_keys {
+        write_internal_node_right_child_pointer(node, ptr);
+    } else {
+        write_internal_node_key(node, child_num, ptr)
+    }
+}
+
 fn get_node_type(node: &Page) -> NodeType {
     let x = node[NODE_TYPE_OFFSET];
-    if x != 0 {
-        println!("invalid node type");
-        exit(1);
+    match x {
+        0 => return NodeType::Leaf,
+        1 => return NodeType::Internal,
+        _ => panic!("invalid node type"),
     }
-    return NodeType::Leaf
 }
 
 fn set_node_type(node: &mut Page, t: NodeType) {
     match t {
-        NodeType::Leaf => {
-            node[NODE_TYPE_OFFSET] = 0;
+        NodeType::Leaf => node[NODE_TYPE_OFFSET] = 0,
+        NodeType::Internal => node[NODE_TYPE_OFFSET] = 1,
+    }
+}
+
+fn get_node_max_key(node: &Page) -> u32 {
+    match get_node_type(node) {
+        NodeType::Internal => {
+            return internal_node_key(node, internal_node_num_keys(node) - 1);
         }
+        NodeType::Leaf => {
+            return leaf_node_key(node, leaf_node_num_cells(node) - 1);
+        }
+    }
+}
+
+fn is_node_root(node: &Page) -> bool {
+    let v = node[IS_ROOT_OFFSET];
+    return v != 0
+}
+
+fn set_node_root(node: &mut Page, is_root: bool) {
+    if is_root {
+        node[IS_ROOT_OFFSET] = 1;
+    } else {
+        node[IS_ROOT_OFFSET] = 0;
     }
 }
 
 fn initialize_leaf_node(node: &mut Page) {
     set_node_type(node, NodeType::Leaf);
+    set_node_root(node, false);
     write_leaf_node_num_cells(node, 0);
+}
+
+fn initialize_internal_node(node: &mut Page) {
+    set_node_type(node, NodeType::Internal);
+    set_node_root(node, false);
+    write_internal_node_num_keys(node, 0);
+}
+
+fn copy_leaf_node_cell(node_from: &Page, from_cell_num: usize, node_to: &mut Page, to_cell_num: usize) {
+    let from_offset: usize = LEAF_NODE_HEADER_SIZE + (from_cell_num * LEAF_NODE_CELL_SIZE);
+    let to_offset: usize = LEAF_NODE_HEADER_SIZE + (to_cell_num * LEAF_NODE_CELL_SIZE);
+    for i in 0..LEAF_NODE_CELL_SIZE {
+        node_to[i + to_offset] = node_from[i + from_offset]
+    }
+}
+
+fn copy_page(node_from: &Page, node_to: &mut Page) {
+    for i in 0..PAGE_SIZE {
+        node_to[i] = node_from[i]
+    }
 }
 
 fn leaf_node_value(node: &Page, cell_num: usize) -> Vec<u8> {
@@ -218,13 +352,55 @@ impl<'a> Cursor<'a> {
         Row::deserialize(&value, 0)
     }
 
+    fn leaf_node_split_and_insert(&mut self, _key: u32, row: &Row) {
+        /*
+        Create a new node and move half the cells over.
+        Insert the new value in one of the two nodes.
+        Update parent or create a new parent.
+        */
+        let new_page_num = self.table.pager.get_unused_page_num();
+        let old_node = self.table.pager.get_page(self.page_num);
+        let new_node = self.table.pager.get_page(new_page_num as usize);
+        initialize_leaf_node(new_node);
+
+        for i in (0..LEAF_NODE_MAX_CELLS+1).rev() {
+            let mut destination_node: Page;
+            if i >= LEAF_NODE_LEFT_SPLIT_COUNT {
+                destination_node = new_node.to_owned();
+            } else {
+                destination_node = old_node.to_owned();
+            }
+            let index_within_node = i % LEAF_NODE_LEFT_SPLIT_COUNT;
+
+            if i == self.cell_num {
+                let row_data = Row::serialize(row);
+                write_leaf_node_key_cell(&mut destination_node, index_within_node as u32, row.id);
+                write_leaf_node_value(&mut destination_node, index_within_node, row_data)
+            } else if i > self.cell_num {
+                copy_leaf_node_cell(old_node, i-1, &mut destination_node, index_within_node);
+            } else {
+                copy_leaf_node_cell(old_node, i, &mut destination_node, index_within_node)
+            }
+        }
+
+        /* Update cell count on both leaf nodes */
+        write_leaf_node_num_cells(old_node, LEAF_NODE_LEFT_SPLIT_COUNT as u32);
+        write_leaf_node_num_cells(new_node, LEAF_NODE_RIGHT_SPLIT_COUNT as u32);
+
+        if is_node_root(old_node) {
+            return self.table.create_new_root(new_page_num);
+        } else {
+            println!("Need to implement updating parent after split");
+            exit(1);
+        }
+    }
+
     pub fn leaf_node_insert(&mut self, key: u32, row: &Row) {
         let node = self.table.pager.get_page(self.page_num);
         let num_cells: u32 = leaf_node_num_cells(node);
         if (num_cells as usize) >= LEAF_NODE_MAX_CELLS {
-            // Node full
-            println!("Need to implement splitting a leaf node.");
-            exit(1);
+            self.leaf_node_split_and_insert(key, row);
+            return
         }
 
         let mut new_node = node.clone();
@@ -281,6 +457,34 @@ impl<'a> Table {
         Table { pager, root_page_num }
     }
 
+    fn create_new_root(&mut self , right_child_page_num: u32) {
+        /*
+        Handle splitting the root.
+        Old root copied to new page, becomes left child.
+        Address of right child passed in.
+        Re-initialize root page to contain the new root node.
+        New root node points to two children.
+        */
+
+        let left_child_page_num = self.pager.get_unused_page_num();
+        let _right_child = self.pager.get_page(right_child_page_num as usize);
+        let root = self.pager.get_page(self.root_page_num);
+        let left_child = self.pager.get_page(left_child_page_num as usize);
+
+        /* Left child has data copied from old root */
+        copy_page(left_child, root);
+        set_node_root(left_child, false);
+
+        /* Root node is a new internal node with one key and two children */
+        initialize_internal_node(root);
+        set_node_root(root, true);
+        write_internal_node_num_keys(root, 1);
+        write_internal_node_child(root, 0, left_child_page_num);
+        let left_child_max_key: u32 = get_node_max_key(left_child);
+        write_internal_node_key(root, 0, left_child_max_key);
+        write_internal_node_right_child_pointer(root, right_child_page_num);
+    }
+
     pub fn start(&mut self) -> Cursor {
         let page_num = self.root_page_num;
         let cell_num = 0;
@@ -304,6 +508,9 @@ impl<'a> Table {
         match get_node_type(&root_node) {
             NodeType::Leaf => {
                 return self.leaf_node_find(page_num as u32, key);
+            }
+            NodeType::Internal => {
+                panic!("Need to implement searching an internal node");
             }
         }
     }
@@ -408,6 +615,12 @@ impl Pager {
                 exit(1);
             }
         }
+    }
+
+    fn get_unused_page_num(self: &Pager) -> u32 {
+        // Until we start recycling free pages, new pages will always
+        // go onto the end of the database file
+        return self.num_pages as u32;
     }
 
     pub fn get_page(self: &mut Pager, page_num: usize) -> &mut Page {
