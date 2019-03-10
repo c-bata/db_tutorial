@@ -138,12 +138,10 @@ impl Row {
 }
 
 pub fn leaf_node_num_cells(node: &Page) -> u32 {
-    let mut bytes = vec![0; LEAF_NODE_NUM_CELLS_SIZE];
-    bytes.clone_from_slice(node.index(Range {
+    return LittleEndian::read_u32(node.index(Range {
         start: LEAF_NODE_NUM_CELLS_OFFSET,
         end: LEAF_NODE_NUM_CELLS_OFFSET + LEAF_NODE_NUM_CELLS_SIZE,
     }));
-    return LittleEndian::read_u32(bytes.as_slice());
 }
 
 fn write_leaf_node_num_cells(node: &mut Page, num_cells: u32) {
@@ -157,12 +155,10 @@ fn write_leaf_node_num_cells(node: &mut Page, num_cells: u32) {
 }
 
 fn internal_node_num_keys(node: &Page) -> u32 {
-    let mut bytes = vec![0; INTERNAL_NODE_NUM_KEYS_SIZE];
-    bytes.clone_from_slice(node.index(Range {
+    return LittleEndian::read_u32(node.index(Range {
         start: INTERNAL_NODE_NUM_KEYS_OFFSET,
         end: INTERNAL_NODE_NUM_KEYS_OFFSET + INTERNAL_NODE_NUM_KEYS_SIZE,
     }));
-    return LittleEndian::read_u32(bytes.as_slice());
 }
 
 fn write_internal_node_num_keys(node: &mut Page, num_keys: u32) {
@@ -176,12 +172,10 @@ fn write_internal_node_num_keys(node: &mut Page, num_keys: u32) {
 }
 
 fn internal_node_right_child_pointer(node: &Page) -> u32 {
-    let mut bytes = vec![0; INTERNAL_NODE_RIGHT_CHILD_SIZE];
-    bytes.clone_from_slice(node.index(Range {
+    return LittleEndian::read_u32(node.index(Range {
         start: INTERNAL_NODE_RIGHT_CHILD_OFFSET,
         end: INTERNAL_NODE_RIGHT_CHILD_OFFSET+ INTERNAL_NODE_RIGHT_CHILD_SIZE,
     }));
-    return LittleEndian::read_u32(bytes.as_slice());
 }
 
 fn write_internal_node_right_child_pointer(node: &mut Page, ptr: u32) {
@@ -195,13 +189,11 @@ fn write_internal_node_right_child_pointer(node: &mut Page, ptr: u32) {
 }
 
 fn internal_node_key(node: &Page, cell_num: u32) -> u32 {
-    let mut bytes = vec![0; INTERNAL_NODE_KEY_SIZE];
     let offset = INTERNAL_NODE_HEADER_SIZE + (cell_num as usize) * INTERNAL_NODE_CELL_SIZE;
-    bytes.clone_from_slice(node.index(Range {
+    return LittleEndian::read_u32(node.index(Range {
         start: offset,
         end: offset + INTERNAL_NODE_KEY_SIZE,
     }));
-    return LittleEndian::read_u32(bytes.as_slice());
 }
 
 fn write_internal_node_key(node: &mut Page, cell_num: u32, value: u32) {
@@ -468,19 +460,20 @@ impl<'a> Table {
 
         let left_child_page_num = self.pager.get_unused_page_num();
         let _right_child = self.pager.get_page(right_child_page_num as usize);
-        let root = self.pager.get_page(self.root_page_num);
         let left_child = self.pager.get_page(left_child_page_num as usize);
+        set_node_root(left_child, false);
+
 
         /* Left child has data copied from old root */
+        let root = self.pager.get_page(self.root_page_num);
         copy_page(left_child, root);
-        set_node_root(left_child, false);
 
         /* Root node is a new internal node with one key and two children */
         initialize_internal_node(root);
         set_node_root(root, true);
         write_internal_node_num_keys(root, 1);
         write_internal_node_child(root, 0, left_child_page_num);
-        let left_child_max_key: u32 = get_node_max_key(left_child);
+        let left_child_max_key: u32 = get_node_max_key(&left_child);
         write_internal_node_key(root, 0, left_child_max_key);
         write_internal_node_right_child_pointer(root, right_child_page_num);
     }
@@ -623,6 +616,35 @@ impl Pager {
         return self.num_pages as u32;
     }
 
+    pub fn load_page(self: &mut Pager, page_num: usize) {
+        let num_pages: usize = if (self.file_length % PAGE_SIZE) == 0 {
+            self.file_length / PAGE_SIZE
+        } else {
+            self.file_length / PAGE_SIZE + 1
+        };
+
+        if page_num <= num_pages {
+            let offset = page_num * PAGE_SIZE;
+            self.file.seek(SeekFrom::Start(offset as u64)).unwrap();
+            let mut buf = vec![0; PAGE_SIZE];
+            self.file.read(buf.as_mut_slice()).unwrap();
+            self.pages[page_num] = Some(buf);
+        } else {
+            self.pages[page_num] = Some(vec![0; PAGE_SIZE]);
+        }
+    }
+
+    pub fn get_immutable_page(self: &Pager, page_num: usize) -> Option<Page> {
+        if page_num > TABLE_MAX_PAGES {
+            println!(
+                "Tried to fetch page number out of bounds. {} > {}",
+                page_num, TABLE_MAX_PAGES
+            );
+            exit(1);
+        }
+        return self.pages[page_num]
+    }
+
     pub fn get_page(self: &mut Pager, page_num: usize) -> &mut Page {
         if page_num > TABLE_MAX_PAGES {
             println!(
@@ -633,32 +655,7 @@ impl Pager {
         }
 
         if let None = self.pages[page_num] {
-            let num_pages: usize = if (self.file_length % PAGE_SIZE) == 0 {
-                self.file_length / PAGE_SIZE
-            } else {
-                // file_length が 4096 で割り切れなければ、
-                // 部分的にpageが書き込まれていたかもなので +1 する
-                self.file_length / PAGE_SIZE + 1
-            };
-
-            // file_length から計算したファイルに書き込まれているpage数よりも、
-            // 今欲しいpageが小さいつまり必ず存在していれば、lseekしてそこから読み出す。
-            if page_num <= num_pages {
-                // 0 から start なので offset は単純に page_num * 4096
-                let offset = page_num * PAGE_SIZE;
-                self.file.seek(SeekFrom::Start(offset as u64)).unwrap();
-                let mut buf = vec![0; PAGE_SIZE];
-                self.file.read(buf.as_mut_slice()).unwrap();
-                self.pages[page_num] = Some(buf);
-            } else {
-                // Page がfile内に見つからない場合は読み出さない。
-                // あとで正しくfileにflushして上げる必要がある。
-                self.pages[page_num] = Some(vec![0; PAGE_SIZE]);
-            }
-
-            if page_num >= self.num_pages {
-                self.num_pages = page_num + 1;
-            }
+            self.load_page(page_num);
         }
         return self.pages[page_num].as_mut().unwrap();
     }
