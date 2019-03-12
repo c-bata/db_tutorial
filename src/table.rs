@@ -350,36 +350,47 @@ impl<'a> Cursor<'a> {
         Insert the new value in one of the two nodes.
         Update parent or create a new parent.
         */
-        let new_page_num = self.table.pager.get_unused_page_num();
-        let old_node = self.table.pager.get_page(self.page_num);
-        let new_node = self.table.pager.get_page(new_page_num as usize);
-        initialize_leaf_node(new_node);
+        let new_page_num = self.table.pager.new_leaf_node();
 
         for i in (0..LEAF_NODE_MAX_CELLS+1).rev() {
-            let mut destination_node: Page;
-            if i >= LEAF_NODE_LEFT_SPLIT_COUNT {
-                destination_node = new_node.to_owned();
-            } else {
-                destination_node = old_node.to_owned();
-            }
             let index_within_node = i % LEAF_NODE_LEFT_SPLIT_COUNT;
 
             if i == self.cell_num {
+                let destination_node: &mut Page;
+                if i >= LEAF_NODE_LEFT_SPLIT_COUNT {
+                    destination_node = self.table.pager.get_page(new_page_num as usize);
+                } else {
+                    destination_node = self.table.pager.get_page(self.page_num);
+                }
                 let row_data = Row::serialize(row);
-                write_leaf_node_key_cell(&mut destination_node, index_within_node as u32, row.id);
-                write_leaf_node_value(&mut destination_node, index_within_node, row_data)
+                write_leaf_node_key_cell(destination_node, index_within_node as u32, row.id);
+                write_leaf_node_value(destination_node, index_within_node, row_data)
             } else if i > self.cell_num {
-                copy_leaf_node_cell(old_node, i-1, &mut destination_node, index_within_node);
+                let old_node = self.table.pager.get_page(self.page_num).clone();
+                let destination_node: &mut Page;
+                if i >= LEAF_NODE_LEFT_SPLIT_COUNT {
+                    destination_node = self.table.pager.get_page(new_page_num as usize);
+                } else {
+                    destination_node = self.table.pager.get_page(self.page_num);
+                }
+                copy_leaf_node_cell(&old_node, i-1, destination_node, index_within_node);
             } else {
-                copy_leaf_node_cell(old_node, i, &mut destination_node, index_within_node)
+                let old_node = self.table.pager.get_page(self.page_num).clone();
+                let destination_node: &mut Page;
+                if i >= LEAF_NODE_LEFT_SPLIT_COUNT {
+                    destination_node = self.table.pager.get_page(new_page_num as usize);
+                } else {
+                    destination_node = self.table.pager.get_page(self.page_num);
+                }
+                copy_leaf_node_cell(&old_node, i, destination_node, index_within_node)
             }
         }
 
         /* Update cell count on both leaf nodes */
-        write_leaf_node_num_cells(old_node, LEAF_NODE_LEFT_SPLIT_COUNT as u32);
-        write_leaf_node_num_cells(new_node, LEAF_NODE_RIGHT_SPLIT_COUNT as u32);
+        write_leaf_node_num_cells(self.table.pager.get_page(self.page_num), LEAF_NODE_LEFT_SPLIT_COUNT as u32);
+        write_leaf_node_num_cells(self.table.pager.get_page(new_page_num as usize), LEAF_NODE_RIGHT_SPLIT_COUNT as u32);
 
-        if is_node_root(old_node) {
+        if is_node_root(self.table.pager.get_page(self.page_num)) {
             return self.table.create_new_root(new_page_num);
         } else {
             println!("Need to implement updating parent after split");
@@ -459,14 +470,19 @@ impl<'a> Table {
         */
 
         let left_child_page_num = self.pager.get_unused_page_num();
-        let _right_child = self.pager.get_page(right_child_page_num as usize);
-        let left_child = self.pager.get_page(left_child_page_num as usize);
-        set_node_root(left_child, false);
+        self.pager._load_page(right_child_page_num as usize);
+        self.pager._load_page(left_child_page_num as usize);
+        self.pager._load_page(self.root_page_num);
 
+        let mut_left_child = self.pager.get_page(left_child_page_num as usize);
+        set_node_root(mut_left_child, false);
 
         /* Left child has data copied from old root */
+        let left_child = self.pager.get_immutable_page(
+            left_child_page_num as usize
+        ).unwrap();
         let root = self.pager.get_page(self.root_page_num);
-        copy_page(left_child, root);
+        copy_page(&left_child, root);
 
         /* Root node is a new internal node with one key and two children */
         initialize_internal_node(root);
@@ -616,7 +632,14 @@ impl Pager {
         return self.num_pages as u32;
     }
 
-    pub fn load_page(self: &mut Pager, page_num: usize) {
+    fn new_leaf_node(self: &mut Pager) -> u32 {
+        let new_page_num = self.get_unused_page_num();
+        let new_node = self.get_page(new_page_num as usize);
+        initialize_leaf_node(new_node);
+        return new_page_num;
+    }
+
+    pub fn _load_page(self: &mut Pager, page_num: usize) {
         let num_pages: usize = if (self.file_length % PAGE_SIZE) == 0 {
             self.file_length / PAGE_SIZE
         } else {
@@ -642,7 +665,7 @@ impl Pager {
             );
             exit(1);
         }
-        return self.pages[page_num]
+        return self.pages[page_num].clone()
     }
 
     pub fn get_page(self: &mut Pager, page_num: usize) -> &mut Page {
@@ -655,7 +678,7 @@ impl Pager {
         }
 
         if let None = self.pages[page_num] {
-            self.load_page(page_num);
+            self._load_page(page_num);
         }
         return self.pages[page_num].as_mut().unwrap();
     }
