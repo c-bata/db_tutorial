@@ -684,12 +684,36 @@ impl Pager {
     }
 }
 
-pub fn print_leaf_node(node: &Page) {
-    let num_cells = leaf_node_num_cells(node);
-    println!("leaf (size {})", num_cells);
-    for i in 0..num_cells {
-        let key = leaf_node_key(node, i);
-        println!("  - {} : {}", i, key);
+fn indent(level: u32) {
+    for _i in 0..level {
+        print!("  ");
+    }
+}
+
+pub fn print_tree(pager: &mut Pager, page_num: u32, indentation_level: u32) {
+    let node = pager.get_page(page_num as usize).clone();
+    let mut num_keys: u32 = 0;
+    let mut child: u32 = 0;
+
+    match get_node_type(&node) {
+        NodeType::Leaf => {
+            num_keys = leaf_node_num_cells(&node);
+            indent(indentation_level);
+            println!("- leaf (size {})", num_keys);
+            for i in 0..num_keys {
+                indent(indentation_level + 1);
+                println!("- {}", leaf_node_key(&node, i))
+            }
+        }
+        NodeType::Internal => {
+            let num_keys = internal_node_num_keys(&node);
+            indent(indentation_level);
+            println!("- internal (size {})", num_keys);
+            for i in 0..num_keys {
+                child = internal_node_right_child_pointer(&node);
+                print_tree(pager, child, indentation_level + 1);
+            }
+        }
     }
 }
 

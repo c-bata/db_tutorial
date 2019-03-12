@@ -7,7 +7,7 @@ use table::{
     Row, Table,
     leaf_node_num_cells,
     print_constants,
-    print_leaf_node,
+    print_tree,
     leaf_node_key,
 };
 
@@ -38,7 +38,7 @@ fn do_meta_command(input_buffer: &String, table: &mut Table) -> MetaCommandResul
         }
         ".btree" => {
             println!("Tree:");
-            print_leaf_node(table.pager.get_page(0));
+            print_tree(&mut table.pager, 0, 0);
             return MetaCommandResult::Success;
         }
         _ => return MetaCommandResult::UnrecognizedCommand,
