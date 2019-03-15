@@ -350,7 +350,8 @@ impl<'a> Cursor<'a> {
         Insert the new value in one of the two nodes.
         Update parent or create a new parent.
         */
-        let new_page_num = self.table.pager.new_leaf_node();
+        let new_page_num = self.table.pager.get_unused_page_num();
+        initialize_leaf_node(self.table.pager.get_page(new_page_num as usize));
 
         for i in (0..LEAF_NODE_MAX_CELLS+1).rev() {
             let index_within_node = i % LEAF_NODE_LEFT_SPLIT_COUNT;
@@ -469,10 +470,10 @@ impl<'a> Table {
         New root node points to two children.
         */
 
+        let _ = self.pager.get_page(self.root_page_num);
         let left_child_page_num = self.pager.get_unused_page_num();
-        self.pager._load_page(right_child_page_num as usize);
-        self.pager._load_page(left_child_page_num as usize);
-        self.pager._load_page(self.root_page_num);
+        let _ = self.pager.get_page(left_child_page_num as usize);
+        let _ = self.pager.get_page(right_child_page_num as usize);
 
         let mut_left_child = self.pager.get_page(left_child_page_num as usize);
         set_node_root(mut_left_child, false);
@@ -632,31 +633,6 @@ impl Pager {
         return self.num_pages as u32;
     }
 
-    fn new_leaf_node(self: &mut Pager) -> u32 {
-        let new_page_num = self.get_unused_page_num();
-        let new_node = self.get_page(new_page_num as usize);
-        initialize_leaf_node(new_node);
-        return new_page_num;
-    }
-
-    pub fn _load_page(self: &mut Pager, page_num: usize) {
-        let num_pages: usize = if (self.file_length % PAGE_SIZE) == 0 {
-            self.file_length / PAGE_SIZE
-        } else {
-            self.file_length / PAGE_SIZE + 1
-        };
-
-        if page_num <= num_pages {
-            let offset = page_num * PAGE_SIZE;
-            self.file.seek(SeekFrom::Start(offset as u64)).unwrap();
-            let mut buf = vec![0; PAGE_SIZE];
-            self.file.read(buf.as_mut_slice()).unwrap();
-            self.pages[page_num] = Some(buf);
-        } else {
-            self.pages[page_num] = Some(vec![0; PAGE_SIZE]);
-        }
-    }
-
     pub fn get_immutable_page(self: &Pager, page_num: usize) -> Option<Page> {
         if page_num > TABLE_MAX_PAGES {
             println!(
@@ -678,7 +654,32 @@ impl Pager {
         }
 
         if let None = self.pages[page_num] {
-            self._load_page(page_num);
+            let num_pages: usize = if (self.file_length % PAGE_SIZE) == 0 {
+                self.file_length / PAGE_SIZE
+            } else {
+                // file_length が 4096 で割り切れなければ、
+                // 部分的にpageが書き込まれていたかもなので +1 する
+                self.file_length / PAGE_SIZE + 1
+            };
+
+            // file_length から計算したファイルに書き込まれているpage数よりも、
+            // 今欲しいpageが小さいつまり必ず存在していれば、lseekしてそこから読み出す。
+            if page_num <= num_pages {
+                // 0 から start なので offset は単純に page_num * 4096
+                let offset = page_num * PAGE_SIZE;
+                self.file.seek(SeekFrom::Start(offset as u64)).unwrap();
+                let mut buf = vec![0; PAGE_SIZE];
+                self.file.read(buf.as_mut_slice()).unwrap();
+                self.pages[page_num] = Some(buf);
+            } else {
+                // Page がfile内に見つからない場合は読み出さない。
+                // あとで正しくfileにflushして上げる必要がある。
+                self.pages[page_num] = Some(vec![0; PAGE_SIZE]);
+            }
+
+            if page_num >= self.num_pages {
+                self.num_pages = page_num + 1;
+            }
         }
         return self.pages[page_num].as_mut().unwrap();
     }
