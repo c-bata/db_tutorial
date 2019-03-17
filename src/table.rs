@@ -456,6 +456,7 @@ impl<'a> Table {
             // New database file. Initialize page 0 as leaf node.
             let root_node = pager.get_page(0);
             initialize_leaf_node(root_node);
+            set_node_root(root_node, true);
         }
 
         Table { pager, root_page_num }
